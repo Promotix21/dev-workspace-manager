@@ -6,9 +6,11 @@ interface Props {
   statuses: Record<string, ProjectStatus>;
   selectedId: string | null;
   width: number;
+  collapsed: boolean;
   multiView: boolean;
   onSelect: (id: string) => void;
   onMultiView: () => void;
+  onToggleCollapse: () => void;
   onAdd: () => void;
   onOpenSettings: () => void;
   onHome: () => void;
@@ -22,9 +24,11 @@ export function Sidebar({
   statuses,
   selectedId,
   width,
+  collapsed,
   multiView,
   onSelect,
   onMultiView,
+  onToggleCollapse,
   onAdd,
   onOpenSettings,
   onHome,
@@ -61,18 +65,62 @@ export function Sidebar({
     window.addEventListener("mouseup", onUp);
   };
 
+  const currentWidth = collapsed ? 44 : width;
+
+  if (collapsed) {
+    return (
+      <aside className="sidebar sidebar-collapsed" style={{ width: currentWidth, minWidth: currentWidth, alignItems: "center" }}>
+        <div
+          className="sidebar-top"
+          style={{ padding: "10px 0 6px" }}
+         
+        >
+          <button className="icon-btn" style={{ fontSize: '16px' }} onClick={onToggleCollapse} title="Expand Sidebar (Ctrl+B)">
+            »
+          </button>
+        </div>
+        <div className="sidebar-views" style={{ padding: "10px 0" }}>
+          <button className="icon-btn" style={{ fontSize: '16px', marginBottom: '8px' }} onClick={onHome} title="Dashboard">
+            ▤
+          </button>
+          <button
+            className={`icon-btn ${multiView ? "active" : ""}`}
+            style={{ fontSize: '16px' }}
+            onClick={onMultiView}
+            title="All Terminals"
+          >
+            ⊞
+          </button>
+        </div>
+        <div style={{ flex: 1 }} />
+        <div className="sidebar-bottom" style={{ padding: "10px 0", borderTop: "none" }}>
+          <button className="icon-btn" style={{ fontSize: '16px' }} onClick={onOpenSettings} title="Settings">
+            ⚙
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="sidebar" style={{ width, minWidth: width }}>
-      <div className="sidebar-top">
+    <aside className="sidebar" style={{ width: currentWidth, minWidth: currentWidth }}>
+      <div
+        className="sidebar-top"
+        style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+       
+      >
         <button className="brand" onClick={onHome} title="Dashboard">
           <span className="brand-mark">▤</span> Dev Workspace
+        </button>
+        <button className="icon-btn" onClick={onToggleCollapse} title="Collapse Sidebar (Ctrl+B)">
+          «
         </button>
       </div>
       <div className="sidebar-views">
         <button
-          className={`sidebar-view-btn ${multiView ? "active" : ""}`}
+          className={`icon-btn ${multiView ? "active" : ""}`}
           onClick={onMultiView}
-          title="View all terminals from all projects in a grid"
+          title="All Terminals"
         >
           ⊞ All Terminals
         </button>

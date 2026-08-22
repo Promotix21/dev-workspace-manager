@@ -57,6 +57,8 @@ pub struct Settings {
     pub last_project_id: Option<String>,
     #[serde(default = "default_sidebar_width")]
     pub sidebar_width: u16,
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
 }
 
 impl Default for Settings {
@@ -72,6 +74,7 @@ impl Default for Settings {
             default_project_dir: None,
             last_project_id: None,
             sidebar_width: default_sidebar_width(),
+            sidebar_collapsed: false,
         }
     }
 }

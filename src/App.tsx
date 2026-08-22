@@ -58,6 +58,19 @@ export default function App() {
     }
   }, []);
 
+  const toggleSidebar = useCallback(() => {
+    const currentSettings = settingsRef.current;
+    if (!currentSettings) return;
+    const nextSettings = {
+      ...currentSettings,
+      sidebar_collapsed: !currentSettings.sidebar_collapsed
+    };
+    setSettings(nextSettings);
+    api
+      .saveSettings(nextSettings)
+      .catch((e) => console.error("failed to save sidebar state", e));
+  }, []);
+
   // Initial load.
   useEffect(() => {
     (async () => {
@@ -292,9 +305,11 @@ export default function App() {
           statuses={statuses}
           selectedId={multiView ? null : selectedId}
           width={sidebarWidth}
+          collapsed={settings?.sidebar_collapsed ?? false}
           multiView={multiView}
           onSelect={(id) => { setMultiView(false); setSelectedId(id); }}
           onMultiView={() => setMultiView((v) => !v)}
+          onToggleCollapse={toggleSidebar}
           onAdd={() => setModal({ kind: "add" })}
           onOpenSettings={() => setModal({ kind: "settings" })}
           onHome={() => { setMultiView(false); setSelectedId(null); }}

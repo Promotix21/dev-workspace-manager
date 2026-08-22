@@ -51,6 +51,7 @@ export interface Settings {
   default_project_dir?: string | null;
   last_project_id?: string | null;
   sidebar_width: number;
+  sidebar_collapsed: boolean;
 }
 
 /** Per-project persisted layout sizes: maps a split path key -> size percentages. */

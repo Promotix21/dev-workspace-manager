@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Dev Workspace
+Comment=Launch Dev Workspace Manager from the COSMIC panel
+Type=Application
+Exec=cosmic-panel-button dev-workspace-manager
+Icon=dev-workspace-manager
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Applet;Workspace;
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-OverflowPriority=10
