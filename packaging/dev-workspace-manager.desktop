@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Dev Workspace Manager
+GenericName=Terminal Workspace Manager
+Comment=Persistent multi-project terminal workspaces backed by tmux
+Exec=dev-workspace-manager
+Icon=dev-workspace-manager
+Terminal=false
+Categories=Development;Utility;
+Keywords=terminal;tmux;workspace;developer;pty;
+StartupWMClass=Dev Workspace Manager
