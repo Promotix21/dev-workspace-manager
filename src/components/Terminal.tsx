@@ -3,6 +3,7 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
 } from "react";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -16,6 +17,8 @@ import {
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../api";
 
+import type { InteractionProfile } from "../types";
+
 export interface TerminalHandle {
   clear: () => void;
   focus: () => void;
@@ -23,6 +26,9 @@ export interface TerminalHandle {
   findNext: (q: string) => void;
   findPrevious: (q: string) => void;
   clearSearch: () => void;
+  copySelection: () => void;
+  pasteClipboard: () => void;
+  selectAll: () => void;
 }
 
 interface TerminalProps {
@@ -30,9 +36,11 @@ interface TerminalProps {
   paneIndex: number;
   fontSize: number;
   scrollback: number;
+  interactionProfile?: InteractionProfile | null;
   onExit?: () => void;
   onReady?: (paneId: string) => void;
   onFocus?: () => void;
+  onContextMenu?: (e: MouseEvent, hasSelection: boolean) => void;
 }
 
 const THEME = {
@@ -74,16 +82,19 @@ function encodeInput(data: string): string {
 
 export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
   (
-    { projectId, paneIndex, fontSize, scrollback, onExit, onReady, onFocus },
+    { projectId, paneIndex, fontSize, scrollback, interactionProfile, onExit, onReady, onFocus, onContextMenu },
     ref,
   ) => {
     const containerRef = useRef<HTMLDivElement>(null);
     const termRef = useRef<XTerm | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const searchRef = useRef<SearchAddon | null>(null);
+    const [_paneId, setPaneId] = useState<string | null>(null);
     const paneIdRef = useRef<string | null>(null);
     const onFocusRef = useRef(onFocus);
     onFocusRef.current = onFocus;
+    const onContextRef = useRef(onContextMenu);
+    onContextRef.current = onContextMenu;
 
     useImperativeHandle(ref, () => ({
       clear: () => termRef.current?.clear(),
@@ -92,6 +103,20 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       findNext: (q: string) => searchRef.current?.findNext(q),
       findPrevious: (q: string) => searchRef.current?.findPrevious(q),
       clearSearch: () => searchRef.current?.clearDecorations(),
+      copySelection: () => {
+        const sel = termRef.current?.getSelection();
+        if (sel) clipboardWrite(sel).catch(() => {});
+      },
+      pasteClipboard: () => {
+        clipboardRead()
+          .then((txt) => {
+            if (txt && paneIdRef.current) {
+              api.writeTerminal(paneIdRef.current, encodeInput(txt)).catch(() => {});
+            }
+          })
+          .catch(() => {});
+      },
+      selectAll: () => termRef.current?.selectAll(),
     }));
 
     useEffect(() => {
@@ -153,18 +178,22 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         return true;
       });
 
-      // Right-click pastes the clipboard (natural on Linux terminals).
       const onContext = (ev: MouseEvent) => {
         ev.preventDefault();
-        clipboardRead()
-          .then((txt) => {
-            if (txt && paneIdRef.current) {
-              api.writeTerminal(paneIdRef.current, encodeInput(txt)).catch(
-                () => {},
-              );
-            }
-          })
-          .catch(() => {});
+        const hasSel = term.hasSelection();
+        const sel = term.getSelection();
+
+        if (interactionProfile === "claude") {
+          if (hasSel && sel) {
+             clipboardWrite(sel).catch(() => {});
+             return;
+          }
+          // if no selection, fallback to context menu
+          onContextRef.current?.(ev, hasSel);
+        } else {
+          // gemini, shell, codex, custom
+          onContextRef.current?.(ev, hasSel);
+        }
       };
       el.addEventListener("contextmenu", onContext);
 
@@ -198,6 +227,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           return;
         }
         paneIdRef.current = paneId;
+        setPaneId(paneId);
         onReady?.(paneId);
 
         unlistenOut = await listen<string>(`pty://output/${paneId}`, (ev) => {
@@ -261,7 +291,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       }
     }, [fontSize]);
 
-    return <div className="terminal-host" ref={containerRef} />;
+    return <div className="terminal-host" data-pane-id={paneIdRef.current || ""} ref={containerRef} />;
   },
 );
 

@@ -13,6 +13,7 @@ interface Props {
   onToggleCollapse: () => void;
   onAdd: () => void;
   onOpenSettings: () => void;
+  onOpenServers: () => void;
   onHome: () => void;
   onResizeWidth: (w: number) => void;
   onContextProject: (project: Project, x: number, y: number) => void;
@@ -31,6 +32,7 @@ export function Sidebar({
   onToggleCollapse,
   onAdd,
   onOpenSettings,
+  onOpenServers,
   onHome,
   onResizeWidth,
   onContextProject,
@@ -94,6 +96,9 @@ export function Sidebar({
         </div>
         <div style={{ flex: 1 }} />
         <div className="sidebar-bottom" style={{ padding: "10px 0", borderTop: "none" }}>
+          <button className="icon-btn" style={{ fontSize: '16px', marginBottom: '8px' }} onClick={onOpenServers} title="Servers">
+            ☁
+          </button>
           <button className="icon-btn" style={{ fontSize: '16px' }} onClick={onOpenSettings} title="Settings">
             ⚙
           </button>
@@ -164,6 +169,9 @@ export function Sidebar({
       <div className="sidebar-bottom">
         <button className="btn btn-primary block" onClick={onAdd}>
           + Add Project
+        </button>
+        <button className="btn block" onClick={onOpenServers}>
+          ☁ Servers
         </button>
         <button className="btn block" onClick={onOpenSettings}>
           ⚙ Settings

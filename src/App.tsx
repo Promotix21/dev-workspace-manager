@@ -9,13 +9,16 @@ import { MultiView } from "./components/MultiView";
 import { ProjectForm } from "./components/ProjectForm";
 import { SettingsModal } from "./components/SettingsModal";
 import { NewTerminalDialog } from "./components/NewTerminalDialog";
+import { ServersModal } from "./components/ServersModal";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
+import { DragDropManager } from "./lib/DragDropManager";
 
 type Modal =
   | null
   | { kind: "add" }
   | { kind: "edit"; project: Project }
   | { kind: "settings" }
+  | { kind: "servers" }
   | { kind: "new-terminal"; project: Project };
 
 interface Ctx {
@@ -299,6 +302,7 @@ export default function App() {
           <button onClick={() => setDepsDismissed(true)}>dismiss</button>
         </div>
       )}
+      <DragDropManager />
       <div className="main">
         <Sidebar
           projects={projects}
@@ -312,6 +316,7 @@ export default function App() {
           onToggleCollapse={toggleSidebar}
           onAdd={() => setModal({ kind: "add" })}
           onOpenSettings={() => setModal({ kind: "settings" })}
+          onOpenServers={() => setModal({ kind: "servers" })}
           onHome={() => { setMultiView(false); setSelectedId(null); }}
           onResizeWidth={persistSidebarWidth}
           onContextProject={(project, x, y) => setCtx({ project, x, y })}
@@ -323,7 +328,7 @@ export default function App() {
               projects={projects}
               statuses={statuses}
               settings={settings}
-              onRefresh={refreshStatuses}
+              onProjectsChanged={loadProjects}
             />
           ) : selected ? (
             <Workspace
@@ -380,6 +385,9 @@ export default function App() {
           onCancel={() => setModal(null)}
           onSave={onSaveSettings}
         />
+      )}
+      {modal?.kind === "servers" && (
+        <ServersModal onCancel={() => setModal(null)} />
       )}
       {modal?.kind === "new-terminal" && (
         <NewTerminalDialog

@@ -710,6 +710,12 @@ select {
   font-size: 13px;
   width: 100%;
 }
+/* Compact command-preset picker: stays narrow, input keeps the rest of the row. */
+.preset-select {
+  width: auto;
+  flex: 0 0 auto;
+  max-width: 160px;
+}
 .row {
   display: flex;
   gap: 8px;
@@ -924,4 +930,9 @@ select {
 }
 ::-webkit-scrollbar-track {
   background: transparent;
+}
+
+/* Drag Drop terminal hover */
+.terminal-host.drag-hover {
+  background-color: rgba(121, 192, 255, 0.1) !important;
 }

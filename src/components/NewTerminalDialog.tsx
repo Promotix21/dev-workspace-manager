@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { COMMAND_PRESETS } from "../lib/commandPresets";
 
 interface Props {
   projectName: string;
@@ -57,11 +58,28 @@ export function NewTerminalDialog({
           </div>
           <div className="field">
             <label>Command (optional)</label>
-            <input
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              placeholder="claude   ·   npm run dev   ·   (empty = shell)"
-            />
+            <div className="row">
+              <input
+                value={command}
+                onChange={(e) => setCommand(e.target.value)}
+                placeholder="claude   ·   npm run dev   ·   (empty = shell)"
+              />
+              <select
+                className="preset-select"
+                value=""
+                title="Insert a preset command"
+                onChange={(e) => {
+                  if (e.target.value) setCommand(e.target.value);
+                }}
+              >
+                <option value="">Preset…</option>
+                {COMMAND_PRESETS.map((p) => (
+                  <option key={p.command} value={p.command}>
+                    {p.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className="field">
             <label>Working directory</label>

@@ -64,3 +64,15 @@ export const openSystemTerminal = (dir: string) =>
   invoke<void>("open_system_terminal", { dir });
 export const setAutostart = (enabled: boolean) =>
   invoke<string>("set_autostart", { enabled });
+
+// --- server vault ---
+import type { ServerProfile } from "./types";
+export const getServers = () => invoke<ServerProfile[]>("get_servers");
+export const getServer = (id: string) =>
+  invoke<ServerProfile | null>("get_server", { id });
+export const upsertServer = (server: ServerProfile, secret: string | null = null) =>
+  invoke<void>("upsert_server", { server, secret });
+export const deleteServer = (id: string) =>
+  invoke<void>("delete_server", { id });
+export const testServerConnection = (id: string) =>
+  invoke<string>("test_server_connection", { id });

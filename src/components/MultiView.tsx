@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import type { Project, ProjectStatus, Settings } from "../types";
 import { TerminalPane } from "./TerminalPane";
+import * as api from "../api";
 
 interface TerminalSlot {
   project: Project;
@@ -11,12 +12,16 @@ interface Props {
   projects: Project[];
   statuses: Record<string, ProjectStatus>;
   settings: Settings;
-  onRefresh: () => void;
+  onProjectsChanged: () => void | Promise<unknown>;
 }
 
 const PER_PAGE = 4;
 
-export function MultiView({ projects, settings, onRefresh }: Props) {
+export function MultiView({
+  projects,
+  settings,
+  onProjectsChanged,
+}: Props) {
   const [page, setPage] = useState(0);
   const [activeKey, setActiveKey] = useState<string | null>(null);
 
@@ -29,6 +34,28 @@ export function MultiView({ projects, settings, onRefresh }: Props) {
   const start = clampedPage * PER_PAGE;
 
   const projectCount = projects.filter((p) => p.terminals.length > 0).length;
+
+  // Permanently remove a terminal from here too: kill the tmux window, drop it
+  // from the project config, then reload projects so the slot leaves the grid.
+  const killTerminal = async (project: Project, paneIndex: number) => {
+    const term = project.terminals[paneIndex];
+    if (!term) return;
+    if (
+      settings.confirm_kill &&
+      !confirm(
+        `Remove terminal "${term.name}" from "${project.name}"? This kills its process and deletes it.`,
+      )
+    )
+      return;
+    try {
+      await api.killTerminal(project.id, paneIndex);
+    } catch (e) {
+      console.error("[terminal] kill window failed (continuing to remove)", e);
+    }
+    const terminals = project.terminals.filter((_, i) => i !== paneIndex);
+    await api.saveProject({ ...project, terminals });
+    await onProjectsChanged();
+  };
 
   if (slots.length === 0) {
     return (
@@ -100,7 +127,7 @@ export function MultiView({ projects, settings, onRefresh }: Props) {
                 onToggleFullscreen={() => {}}
                 onDuplicate={() => {}}
                 onRename={() => {}}
-                onConfigChanged={onRefresh}
+                onKill={() => killTerminal(slot.project, slot.paneIndex)}
               />
             </div>
           );

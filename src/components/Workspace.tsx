@@ -110,6 +110,30 @@ export function Workspace({
     await persist({ ...project, terminals });
   };
 
+  // Permanently remove a terminal: kill its tmux window first (while its
+  // pane_index is still valid), then drop it from the config so it does not get
+  // recreated on the next reconnect.
+  const killTerminal = async (index: number) => {
+    const term = project.terminals[index];
+    if (!term) return;
+    if (
+      settings.confirm_kill &&
+      !confirm(
+        `Remove terminal "${term.name}"? This kills its process and deletes it from the workspace.`,
+      )
+    )
+      return;
+    try {
+      await api.killTerminal(project.id, index);
+    } catch (e) {
+      // The window may already be gone; removal from config should still proceed.
+      console.error("[terminal] kill window failed (continuing to remove)", e);
+    }
+    if (fullscreenSlot === index) setFullscreenSlot(null);
+    const terminals = project.terminals.filter((_, i) => i !== index);
+    await persist({ ...project, terminals });
+  };
+
   const doAction = async (fn: () => Promise<unknown>, label: string) => {
     setBusy(true);
     try {
@@ -143,7 +167,7 @@ export function Workspace({
         }
         onDuplicate={() => duplicateTerminal(slot)}
         onRename={(name) => renameTerminal(slot, name)}
-        onConfigChanged={refreshStatus}
+        onKill={() => killTerminal(slot)}
       />
     );
   };

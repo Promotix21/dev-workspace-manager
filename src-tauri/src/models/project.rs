@@ -19,6 +19,8 @@ pub struct Project {
     pub layout_sizes: Option<serde_json::Value>,
     #[serde(default)]
     pub sort_order: i64,
+    #[serde(default)]
+    pub servers: Option<Vec<String>>,
 }
 
 fn default_layout() -> String {

@@ -3,6 +3,8 @@ export interface EnvVar {
   value: string;
 }
 
+export type InteractionProfile = "shell" | "claude" | "gemini" | "codex" | "custom";
+
 export interface TerminalDef {
   id: string;
   name: string;
@@ -10,6 +12,7 @@ export interface TerminalDef {
   run_automatically: boolean;
   cwd?: string | null;
   env: EnvVar[];
+  interaction_profile?: InteractionProfile | null;
 }
 
 export type LayoutKey =
@@ -30,6 +33,7 @@ export interface Project {
   start_with_app: boolean;
   layout_sizes?: LayoutSizes | null;
   sort_order: number;
+  servers?: string[];
 }
 
 export interface ProjectStatus {
@@ -74,4 +78,16 @@ export interface GitInfo {
   is_repo: boolean;
   branch?: string | null;
   dirty: boolean;
+}
+
+export interface ServerProfile {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  username: string;
+  auth_type: "password" | "key" | "none";
+  remote_root: string;
+  key_path?: string | null;
+  notes?: string | null;
 }

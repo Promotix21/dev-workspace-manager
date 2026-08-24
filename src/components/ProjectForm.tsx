@@ -1,7 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { EnvVar, LayoutKey, Project, TerminalDef } from "../types";
+import type { EnvVar, LayoutKey, Project, TerminalDef, ServerProfile } from "../types";
 import { LAYOUTS } from "../lib/layouts";
+import { COMMAND_PRESETS } from "../lib/commandPresets";
+import * as api from "../api";
 
 interface Props {
   initial?: Project | null;
@@ -28,6 +30,7 @@ function newTerminal(): TerminalDef {
     run_automatically: true,
     cwd: null,
     env: [],
+    interaction_profile: "shell",
   };
 }
 
@@ -42,17 +45,28 @@ export function ProjectForm({
   const [directory, setDirectory] = useState(
     initial?.directory ?? defaultDir ?? "",
   );
-  const [layout, setLayout] = useState<LayoutKey>(initial?.layout ?? "grid-4");
+  // Default new projects to the single-pane layout: it mounts exactly one xterm
+  // (one scrollback buffer + one PTY attachment) instead of four, which is the
+  // memory-light default. Users can switch to a grid at any time.
+  const [layout, setLayout] = useState<LayoutKey>(initial?.layout ?? "one");
   const [startWithApp, setStartWithApp] = useState(
     initial?.start_with_app ?? false,
   );
+  
+  const [_allServers, setAllServers] = useState<ServerProfile[]>([]);
+  const [_projectServers, _setProjectServers] = useState<string[]>(initial?.servers ?? []);
+  
+  useEffect(() => {
+    api.getServers().then(setAllServers).catch(console.error);
+  }, []);
+
   const [terminals, setTerminals] = useState<TerminalDef[]>(
     initial?.terminals?.length
       ? initial.terminals
       : [
-          { ...newTerminal(), name: "Claude", command: "claude" },
-          { ...newTerminal(), name: "Dev Server", command: "npm run dev" },
-          { ...newTerminal(), name: "Shell", command: "" },
+          { ...newTerminal(), name: "Claude", command: "claude", interaction_profile: "claude" },
+          { ...newTerminal(), name: "Dev Server", command: "npm run dev", interaction_profile: "shell" },
+          { ...newTerminal(), name: "Shell", command: "", interaction_profile: "shell" },
         ],
   );
 
@@ -217,13 +231,31 @@ export function ProjectForm({
                 </div>
                 <div className="field">
                   <label>Startup command</label>
-                  <input
-                    value={t.command}
-                    onChange={(e) =>
-                      updateTerminal(i, { command: e.target.value })
-                    }
-                    placeholder="npm run dev   (empty = plain shell)"
-                  />
+                  <div className="row">
+                    <input
+                      value={t.command}
+                      onChange={(e) =>
+                        updateTerminal(i, { command: e.target.value })
+                      }
+                      placeholder="npm run dev   (empty = plain shell)"
+                    />
+                    <select
+                      className="preset-select"
+                      value=""
+                      title="Insert a preset command"
+                      onChange={(e) => {
+                        if (e.target.value)
+                          updateTerminal(i, { command: e.target.value });
+                      }}
+                    >
+                      <option value="">Preset…</option>
+                      {COMMAND_PRESETS.map((p) => (
+                        <option key={p.command} value={p.command}>
+                          {p.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className="field">
                   <label>Working directory override (optional)</label>

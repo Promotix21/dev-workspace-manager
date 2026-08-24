@@ -1,3 +1,4 @@
 pub mod project_service;
 pub mod pty_service;
 pub mod tmux_service;
+pub mod server_service;

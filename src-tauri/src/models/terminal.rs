@@ -19,6 +19,9 @@ pub struct TerminalDef {
     /// Optional environment variables (KEY=VALUE) applied to the window.
     #[serde(default)]
     pub env: Vec<EnvVar>,
+    /// Terminal interaction profile for UI overrides (e.g. "shell", "claude").
+    #[serde(default)]
+    pub interaction_profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

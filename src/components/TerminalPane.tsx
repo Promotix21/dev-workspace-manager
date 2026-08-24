@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Terminal, type TerminalHandle } from "./Terminal";
+import { ContextMenu } from "./ContextMenu";
 import type { Project, TerminalDef } from "../types";
 import * as api from "../api";
 
@@ -16,7 +17,7 @@ interface Props {
   onToggleFullscreen: () => void;
   onDuplicate: () => void;
   onRename: (name: string) => void;
-  onConfigChanged: () => void;
+  onKill: () => void;
 }
 
 export function TerminalPane({
@@ -32,7 +33,7 @@ export function TerminalPane({
   onToggleFullscreen,
   onDuplicate,
   onRename,
-  onConfigChanged,
+  onKill,
 }: Props) {
   const termRef = useRef<TerminalHandle>(null);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -65,14 +66,11 @@ export function TerminalPane({
     }
   };
 
-  const kill = async () => {
+  // Permanently remove this terminal: the parent kills the tmux window AND
+  // deletes it from the project config so it does not reappear on reconnect.
+  const kill = () => {
     setMenuOpen(false);
-    try {
-      await api.killTerminal(project.id, paneIndex);
-      onConfigChanged();
-    } catch (e) {
-      alert(`Kill failed: ${e}`);
-    }
+    onKill();
   };
 
   const rename = () => {
@@ -91,10 +89,32 @@ export function TerminalPane({
     }
   };
 
-  const closeSearch = () => {
+    const closeSearch = () => {
     setSearch(null);
     termRef.current?.clearSearch();
     termRef.current?.focus();
+  };
+
+  const [ctxMenu, setCtxMenu] = useState<{x: number, y: number, items: any[]}|null>(null);
+
+  const handleContextMenu = (e: MouseEvent, hasSelection: boolean) => {
+    const items: any[] = [
+      {
+        label: "Copy",
+        disabled: !hasSelection,
+        onClick: () => termRef.current?.copySelection()
+      },
+      {
+        label: "Paste",
+        onClick: () => termRef.current?.pasteClipboard()
+      },
+      "sep",
+      {
+        label: "Select All",
+        onClick: () => termRef.current?.selectAll()
+      }
+    ];
+    setCtxMenu({ x: e.clientX, y: e.clientY, items });
   };
 
   return (
@@ -115,7 +135,7 @@ export function TerminalPane({
           </button>
           <button
             className="icon-btn icon-btn-kill"
-            title="Kill terminal"
+            title="Remove terminal (kills its process and deletes it)"
             onClick={kill}
           >
             ✕
@@ -147,7 +167,7 @@ export function TerminalPane({
                 <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
                 <div className="menu">
                   <button onClick={restart}>Restart terminal</button>
-                  <button onClick={kill}>Kill terminal</button>
+                  <button onClick={kill}>Remove terminal</button>
                   <button
                     onClick={() => {
                       setMenuOpen(false);
@@ -227,10 +247,15 @@ export function TerminalPane({
           paneIndex={paneIndex}
           fontSize={fontSize}
           scrollback={scrollback}
+          interactionProfile={terminal.interaction_profile}
           onReady={() => setRunning(true)}
           onExit={() => setRunning(false)}
           onFocus={onFocus}
+          onContextMenu={handleContextMenu}
         />
+        {ctxMenu && (
+           <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxMenu.items} onClose={() => setCtxMenu(null)} />
+        )}
       </div>
     </div>
   );
