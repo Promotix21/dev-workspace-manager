@@ -21,6 +21,7 @@ interface Props {
   onDelete: () => void;
   onProjectChanged: () => void;
   refreshStatus: () => void;
+  onNewTerminal: () => void;
 }
 
 export function Workspace({
@@ -32,6 +33,7 @@ export function Workspace({
   onDelete,
   onProjectChanged,
   refreshStatus,
+  onNewTerminal,
 }: Props) {
   const layout = LAYOUTS[project.layout] ?? LAYOUTS["grid-4"];
   const [fullscreenSlot, setFullscreenSlot] = useState<number | null>(null);
@@ -149,7 +151,12 @@ export function Workspace({
   const renderLeaf = (slot: number) => {
     const terminal = project.terminals[slot];
     if (!terminal) {
-      return <div className="pane pane-empty">No terminal in slot {slot + 1}</div>;
+      return (
+        <div className="pane pane-empty" style={{ display: "flex", flexDirection: "column", gap: "12px", alignItems: "center", justifyContent: "center" }}>
+          <div>No terminal in slot {slot + 1}</div>
+          <button className="btn" onClick={onNewTerminal}>+ Add Terminal</button>
+        </div>
+      );
     }
     return (
       <TerminalPane
@@ -316,7 +323,14 @@ export function Workspace({
             className="btn"
             onClick={() => api.openSystemTerminal(project.directory).catch(alert)}
           >
-            Terminal
+            System Terminal
+          </button>
+          <button
+            className="btn"
+            onClick={onNewTerminal}
+            title="Add a new terminal to this workspace (Ctrl+Shift+T)"
+          >
+            + Terminal
           </button>
           <div className="divider-v" />
           <button className="btn" onClick={onEdit}>

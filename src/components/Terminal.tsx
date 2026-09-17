@@ -89,7 +89,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
     const termRef = useRef<XTerm | null>(null);
     const fitRef = useRef<FitAddon | null>(null);
     const searchRef = useRef<SearchAddon | null>(null);
-    const [_paneId, setPaneId] = useState<string | null>(null);
+    const [paneId, setPaneId] = useState<string | null>(null);
     const paneIdRef = useRef<string | null>(null);
     const onFocusRef = useRef(onFocus);
     onFocusRef.current = onFocus;
@@ -110,8 +110,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       pasteClipboard: () => {
         clipboardRead()
           .then((txt) => {
-            if (txt && paneIdRef.current) {
-              api.writeTerminal(paneIdRef.current, encodeInput(txt)).catch(() => {});
+            if (txt && termRef.current) {
+              termRef.current.paste(txt);
             }
           })
           .catch(() => {});
@@ -123,6 +123,10 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       const el = containerRef.current;
       if (!el) return;
 
+      // Track whether the user has scrolled up away from the bottom.
+      // When true, incoming output will NOT force-scroll the viewport down.
+      const userScrolledUp = { current: false };
+
       const term = new XTerm({
         fontSize,
         fontFamily:
@@ -132,6 +136,9 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         scrollback,
         allowProposedApi: true,
         macOptionIsMeta: true,
+        // Prevent xterm from jumping to the bottom when the user types while
+        // scrolled up — the PTY output already drives the viewport naturally.
+        scrollOnUserInput: false,
         // Right-click never opens a native menu; we handle paste ourselves.
         rightClickSelectsWord: false,
       });
@@ -145,6 +152,40 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       fitRef.current = fit;
       searchRef.current = search;
 
+      // Intercept wheel events and scroll the xterm viewport directly.
+      // By default xterm converts scroll wheel into ↑/↓ arrow key sequences
+      // sent to the PTY — which in agy, codex, claude, and gemini causes the
+      // current prompt to rotate through command history instead of scrolling
+      // the viewport. Taking over the wheel event fixes this for all profiles.
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        // deltaY > 0 = scroll down, < 0 = scroll up.
+        // Normalise pixel/line/page delta modes into a line count.
+        let lines: number;
+        if (e.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
+          lines = Math.round(e.deltaY / 20);
+        } else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
+          lines = e.deltaY > 0 ? term.rows : -term.rows;
+        } else {
+          // DOM_DELTA_LINE — most common
+          lines = Math.round(e.deltaY) || (e.deltaY > 0 ? 3 : -3);
+        }
+        if (lines === 0) return;
+        term.scrollLines(lines);
+        // Keep userScrolledUp in sync after a manual wheel scroll.
+        const buf = term.buffer.active;
+        userScrolledUp.current = buf.viewportY < buf.baseY - 2;
+      };
+      el.addEventListener("wheel", onWheel, { passive: false });
+
+      // Detect scroll position changes from other sources (keyboard, scrollbar).
+      // viewportY == 0 means top of buffer; viewportY == baseY means at the bottom.
+      // We consider the user "at the bottom" if they're within 2 lines of baseY.
+      term.onScroll(() => {
+        const buf = term.buffer.active;
+        userScrolledUp.current = buf.viewportY < buf.baseY - 2;
+      });
+
       // Copy/paste: Ctrl+Shift+C copies selection, Ctrl+Shift+V pastes.
       // Plain Ctrl+C is intentionally NOT intercepted — it must reach the PTY.
       term.attachCustomKeyEventHandler((e) => {
@@ -157,13 +198,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) {
           clipboardRead()
             .then((txt) => {
-              if (txt && paneIdRef.current) {
-                api.writeTerminal(paneIdRef.current, encodeInput(txt)).catch(
-                  () => {},
-                );
+              if (txt && termRef.current) {
+                termRef.current.paste(txt);
               }
             })
             .catch(() => {});
+          e.preventDefault();
           return false;
         }
         // Let Ctrl+Shift+F (fullscreen) and Ctrl+Shift+S (search) bubble to the
@@ -231,7 +271,16 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         onReady?.(paneId);
 
         unlistenOut = await listen<string>(`pty://output/${paneId}`, (ev) => {
-          term.write(bytesToWrite(ev.payload));
+          if (userScrolledUp.current) {
+            // User is reading history — preserve their scroll position.
+            const savedViewportY = term.buffer.active.viewportY;
+            term.write(bytesToWrite(ev.payload), () => {
+              term.scrollToLine(savedViewportY);
+            });
+          } else {
+            // User is at (or near) the bottom — follow output normally.
+            term.write(bytesToWrite(ev.payload));
+          }
         });
         unlistenExit = await listen(`pty://exit/${paneId}`, () => {
           term.writeln("\r\n\x1b[90m[dwm] session detached]\x1b[0m");
@@ -266,6 +315,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       return () => {
         disposed = true;
         ro.disconnect();
+        el.removeEventListener("wheel", onWheel);
         el.removeEventListener("contextmenu", onContext);
         el.removeEventListener("focusin", onFocusIn);
         el.removeEventListener("mousedown", onFocusIn);
@@ -291,7 +341,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       }
     }, [fontSize]);
 
-    return <div className="terminal-host" data-pane-id={paneIdRef.current || ""} ref={containerRef} />;
+    return <div className="terminal-host" data-pane-id={paneId || ""} ref={containerRef} />;
   },
 );
 

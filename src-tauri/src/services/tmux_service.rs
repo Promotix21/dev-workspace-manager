@@ -128,17 +128,35 @@ pub fn window_count(project_id: &str) -> usize {
 /// Returns true if it created the session (i.e. commands were started).
 pub fn ensure_master(project: &Project) -> Result<bool, String> {
     let master = master_name(&project.id);
-    if session_exists(&master) {
-        debug!("master {master} already exists — skipping creation (idempotent)");
-        return Ok(false);
+    let session_up = session_exists(&master);
+    if session_up {
+        debug!("master {master} already exists — syncing missing windows");
+    } else {
+        if project.terminals.is_empty() {
+            return Err("project has no terminals defined".into());
+        }
+        debug!("creating master session {master} with {} windows", project.terminals.len());
     }
-    if project.terminals.is_empty() {
-        return Err("project has no terminals defined".into());
-    }
-    debug!("creating master session {master} with {} windows", project.terminals.len());
+
+    let mut created_any = false;
+
+    // Helper to check if a window exists
+    let window_exists = |wname: &str| -> bool {
+        let out = tmux_checked(&["list-windows", "-t", &format!("={master}"), "-F", "#{window_name}"]);
+        if let Ok(list) = out {
+            list.lines().any(|l| l == wname)
+        } else {
+            false
+        }
+    };
 
     for (i, term) in project.terminals.iter().enumerate() {
         let wname = window_name(term);
+        
+        if session_up && window_exists(&wname) {
+            continue;
+        }
+
         let cwd = term
             .cwd
             .clone()
@@ -155,7 +173,7 @@ pub fn ensure_master(project: &Project) -> Result<bool, String> {
             env_args.push(format!("{}={}", ev.key, ev.value));
         }
 
-        if i == 0 {
+        if !session_up && i == 0 {
             let mut args: Vec<&str> = vec![
                 "new-session", "-d", "-s", &master, "-n", &wname, "-c", &cwd, "-x", "200",
                 "-y", "50",
@@ -165,14 +183,16 @@ pub fn ensure_master(project: &Project) -> Result<bool, String> {
             }
             tmux_checked(&args)
                 .map_err(|e| format!("tmux new-session failed: {e}"))?;
+            created_any = true;
         } else {
             let mut args: Vec<&str> =
-                vec!["new-window", "-t", &master, "-n", &wname, "-c", &cwd];
+                vec!["new-window", "-d", "-t", &master, "-n", &wname, "-c", &cwd];
             for a in &env_args {
                 args.push(a);
             }
             tmux_checked(&args)
                 .map_err(|e| format!("tmux new-window failed: {e}"))?;
+            created_any = true;
         }
 
         // Run the startup command, if configured, by typing it into the window.
@@ -184,7 +204,7 @@ pub fn ensure_master(project: &Project) -> Result<bool, String> {
         }
     }
 
-    Ok(true)
+    Ok(created_any)
 }
 
 /// Ensure a grouped view session bound to the master exists, and lock it to the

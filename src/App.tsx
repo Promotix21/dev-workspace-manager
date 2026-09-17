@@ -273,6 +273,10 @@ export default function App() {
       onClick: () => api.openInVscode(p.directory).catch(alert),
     });
     items.push({
+      label: "Add Terminal...",
+      onClick: () => setModal({ kind: "new-terminal", project: p }),
+    });
+    items.push({
       label: "Open System Terminal",
       onClick: () => api.openSystemTerminal(p.directory).catch(alert),
     });
@@ -341,6 +345,7 @@ export default function App() {
               onDelete={() => onDeleteProject(selected)}
               onProjectChanged={loadProjects}
               refreshStatus={refreshStatuses}
+              onNewTerminal={() => setModal({ kind: "new-terminal", project: selected })}
             />
           ) : (
             <Dashboard
