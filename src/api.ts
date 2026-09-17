@@ -51,6 +51,11 @@ export const restartTerminal = (projectId: string, paneIndex: number) =>
   invoke<void>("restart_terminal", { projectId, paneIndex });
 export const killTerminal = (projectId: string, paneIndex: number) =>
   invoke<void>("kill_terminal", { projectId, paneIndex });
+export const pasteToTerminal = (
+  projectId: string,
+  paneIndex: number,
+  text: string,
+) => invoke<void>("paste_to_terminal", { projectId, paneIndex, text });
 
 // --- git & system ---
 export const gitInfo = (dir: string) => invoke<GitInfo>("git_info", { dir });

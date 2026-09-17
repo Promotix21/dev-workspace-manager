@@ -83,6 +83,22 @@ pub fn restart_terminal(
     tmux_service::restart_window(&project, pane_index)
 }
 
+/// Paste clipboard text into a terminal using tmux's paste-buffer mechanism.
+/// This correctly handles bracketed-paste mode for inner applications such as
+/// Antigravity, which tmux tracks independently of the outer xterm.js session.
+#[tauri::command]
+pub fn paste_to_terminal(
+    store: State<Store>,
+    project_id: String,
+    pane_index: usize,
+    text: String,
+) -> Result<(), String> {
+    let _ = store
+        .get_project(&project_id)?
+        .ok_or_else(|| format!("project {project_id} not found"))?;
+    tmux_service::paste_text(&project_id, pane_index, &text)
+}
+
 /// Kill a single terminal's tmux window.
 #[tauri::command]
 pub fn kill_terminal(

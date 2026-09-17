@@ -17,7 +17,8 @@
 
 use crate::models::{Project, TerminalDef};
 use log::{debug, warn};
-use std::process::{Command, Output};
+use std::io::Write as StdWrite;
+use std::process::{Command, Output, Stdio};
 
 /// Sanitize an arbitrary id into a tmux-safe token: `[a-z0-9_-]`.
 /// tmux session/window names must not contain `.`, `:` or whitespace.
@@ -259,6 +260,49 @@ pub fn kill_master(project_id: &str, max_panes: usize) -> Result<(), String> {
         tmux_checked(&["kill-session", "-t", &format!("={}", master)])
             .map_err(|e| format!("failed to kill master {master}: {e}"))?;
     }
+    Ok(())
+}
+
+/// Paste `text` into the tmux pane for `pane_index` using tmux's own
+/// paste-buffer mechanism. Unlike writing raw bytes to the PTY, this lets tmux
+/// wrap the content in bracketed-paste markers when the inner application has
+/// requested them (e.g. Antigravity). Without this, xterm.js does not know
+/// that the inner app wants bracketed paste (tmux intercepts \x1b[?2004h and
+/// never passes it to the outer terminal), so term.paste() would send raw \r
+/// for every newline, submitting each line as a separate prompt.
+pub fn paste_text(project_id: &str, pane_index: usize, text: &str) -> Result<(), String> {
+    let view = view_name(project_id, pane_index);
+    if !session_exists(&view) {
+        return Err(format!("view session {view} does not exist"));
+    }
+    let buf = "dwm-paste-buf";
+
+    // Load text from stdin into a named tmux buffer.
+    let mut child = Command::new("tmux")
+        .args(["load-buffer", "-b", buf, "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("tmux load-buffer spawn failed: {e}"))?;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(text.as_bytes())
+            .map_err(|e| format!("tmux load-buffer write failed: {e}"))?;
+    }
+    let st = child.wait().map_err(|e| format!("tmux load-buffer wait failed: {e}"))?;
+    if !st.success() {
+        return Err("tmux load-buffer failed".into());
+    }
+
+    // Paste into the view session. tmux checks whether the pane has bracketed
+    // paste mode enabled (from \x1b[?2004h it previously intercepted) and wraps
+    // the content appropriately before sending to the inner application.
+    let target = format!("={view}");
+    tmux_checked(&["paste-buffer", "-b", buf, "-t", &target])
+        .map_err(|e| format!("tmux paste-buffer failed: {e}"))?;
+
+    let _ = tmux(&["delete-buffer", "-b", buf]);
     Ok(())
 }
 

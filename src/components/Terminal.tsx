@@ -120,8 +120,13 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       pasteClipboard: () => {
         clipboardRead()
           .then((txt) => {
-            if (txt && termRef.current) {
-              termRef.current.paste(txt);
+            if (txt) {
+              // Route through tmux paste-buffer so bracketed-paste mode is
+              // honoured for inner apps (e.g. Antigravity). tmux intercepts
+              // \x1b[?2004h and never passes it to xterm.js, so
+              // term.modes.bracketedPasteMode is always false here and
+              // term.paste() would send raw \r for every newline.
+              api.pasteToTerminal(projectId, paneIndex, txt).catch(() => {});
             }
           })
           .catch(() => {});
@@ -242,8 +247,8 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) {
           clipboardRead()
             .then((txt) => {
-              if (txt && termRef.current) {
-                termRef.current.paste(txt);
+              if (txt) {
+                api.pasteToTerminal(projectId, paneIndex, txt).catch(() => {});
               }
             })
             .catch(() => {});
@@ -315,32 +320,20 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         onReady?.(paneId);
 
         unlistenOut = await listen<string>(`pty://output/${paneId}`, (ev) => {
-          const before = term.buffer.active;
-          // Only preserve scroll position on the NORMAL buffer. The alternate
-          // buffer has no scrollback, so restoring a viewport line there is
-          // meaningless — the application owns its screen.
-          if (before.type === "normal" && userScrolledUp.current) {
-            // User is reading history — preserve their position. We anchor to
-            // the distance from the bottom rather than an absolute line index:
-            // apps that print constantly grow (and eventually trim) scrollback,
-            // so absolute line numbers shift and made the viewport jump around.
-            // Distance-from-bottom stays stable across both.
-            const distanceFromBottom = before.baseY - before.viewportY;
-            term.write(bytesToWrite(ev.payload), () => {
-              const after = term.buffer.active;
-              // A control sequence in this chunk may have switched buffers
-              // mid-write; if so, don't touch the (now alternate) viewport.
-              if (after.type !== "normal") return;
-              const target = Math.min(
-                Math.max(0, after.baseY - distanceFromBottom),
-                after.baseY,
-              );
-              term.scrollToLine(target);
-            });
-          } else {
-            // User is at (or near) the bottom — follow output normally.
-            term.write(bytesToWrite(ev.payload));
-          }
+          // xterm.js natively preserves the viewport when the user is scrolled
+          // up on the normal buffer: new output is appended to scrollback
+          // without moving the viewport. No manual scrollToLine is needed —
+          // the previous distance-from-bottom formula incremented the target
+          // on every incoming line, dragging the viewport downward while the
+          // user was reading history.
+          logScroll({
+            event: "output",
+            buffer: term.buffer.active.type,
+            baseY: term.buffer.active.baseY,
+            viewportY: term.buffer.active.viewportY,
+            userScrolledUp: userScrolledUp.current,
+          });
+          term.write(bytesToWrite(ev.payload));
         });
         unlistenExit = await listen(`pty://exit/${paneId}`, () => {
           term.writeln("\r\n\x1b[90m[dwm] session detached]\x1b[0m");
