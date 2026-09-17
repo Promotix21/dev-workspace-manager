@@ -16,8 +16,18 @@ import {
 } from "@tauri-apps/plugin-clipboard-manager";
 import "@xterm/xterm/css/xterm.css";
 import * as api from "../api";
+import { decideWheelRoute } from "../lib/wheelRoute";
 
 import type { InteractionProfile } from "../types";
+
+// Temporary scroll diagnostics — dev builds only, never noisy in production.
+const DEBUG_SCROLL = import.meta.env.DEV;
+function logScroll(fields: Record<string, unknown>): void {
+  if (DEBUG_SCROLL) {
+    // eslint-disable-next-line no-console
+    console.debug("[terminal-scroll]", fields);
+  }
+}
 
 export interface TerminalHandle {
   clear: () => void;
@@ -171,25 +181,52 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       //        alt-screen app that doesn't cooperate — use the app's own keys.)
       //
       // attachCustomWheelEventHandler runs before xterm's own wheel logic;
-      // returning true lets xterm process the event, false cancels it.
+      // returning true lets xterm process the event, false cancels it. The
+      // routing decision itself is a pure function of xterm state (see
+      // ../lib/wheelRoute) so it stays testable and app-agnostic.
       term.attachCustomWheelEventHandler((e) => {
-        if (term.buffer.active.type !== "alternate") {
-          return true; // normal buffer → scroll xterm's scrollback viewport
+        const buf = term.buffer.active;
+        const mouseTracking = term.modes.mouseTrackingMode;
+        const route = decideWheelRoute(buf.type, mouseTracking);
+        logScroll({
+          event: "wheel",
+          buffer: buf.type,
+          mouseTracking,
+          baseY: buf.baseY,
+          viewportY: buf.viewportY,
+          userScrolledUp: userScrolledUp.current,
+          route,
+        });
+        switch (route) {
+          case "native-scrollback":
+          case "app-mouse":
+            return true; // hand back to xterm (scrollback viewport / app mouse)
+          case "suppress-alt-arrow-fallback":
+            // Nothing the terminal can scroll here; don't let the wheel become
+            // ↑/↓ cursor keys that would drive the app's own navigation.
+            e.preventDefault();
+            return false;
         }
-        if (term.modes.mouseTrackingMode !== "none") {
-          return true; // app captures the mouse → forward the wheel to it
-        }
-        // Full-screen app without mouse capture: don't translate the wheel into
-        // arrow keys (which would move its selection instead of scrolling).
-        e.preventDefault();
-        return false;
+      });
+
+      // Reset scrollback-follow state whenever the active buffer switches, so a
+      // stale "scrolled up" from the normal buffer can't leak into the alternate
+      // buffer (or vice-versa).
+      term.buffer.onBufferChange(() => {
+        userScrolledUp.current = false;
       });
 
       // Detect scroll position changes from other sources (keyboard, scrollbar).
-      // viewportY == 0 means top of buffer; viewportY == baseY means at the bottom.
-      // We consider the user "at the bottom" if they're within 2 lines of baseY.
+      // `userScrolledUp` is a normal-scrollback concept only: on the alternate
+      // buffer (which has no scrollback) it must never become true.
+      // viewportY == 0 means top of buffer; viewportY == baseY means at the
+      // bottom. We consider the user "at the bottom" within 2 lines of baseY.
       term.onScroll(() => {
         const buf = term.buffer.active;
+        if (buf.type !== "normal") {
+          userScrolledUp.current = false;
+          return;
+        }
         userScrolledUp.current = buf.viewportY < buf.baseY - 2;
       });
 
@@ -278,17 +315,27 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         onReady?.(paneId);
 
         unlistenOut = await listen<string>(`pty://output/${paneId}`, (ev) => {
-          if (userScrolledUp.current) {
+          const before = term.buffer.active;
+          // Only preserve scroll position on the NORMAL buffer. The alternate
+          // buffer has no scrollback, so restoring a viewport line there is
+          // meaningless — the application owns its screen.
+          if (before.type === "normal" && userScrolledUp.current) {
             // User is reading history — preserve their position. We anchor to
             // the distance from the bottom rather than an absolute line index:
-            // apps like Codex emit output constantly, and as scrollback grows
-            // (or is trimmed at the limit) absolute line numbers shift, which
-            // made the viewport jump around. Distance-from-bottom stays stable.
-            const before = term.buffer.active;
-            const bottomOffset = before.baseY - before.viewportY;
+            // apps that print constantly grow (and eventually trim) scrollback,
+            // so absolute line numbers shift and made the viewport jump around.
+            // Distance-from-bottom stays stable across both.
+            const distanceFromBottom = before.baseY - before.viewportY;
             term.write(bytesToWrite(ev.payload), () => {
               const after = term.buffer.active;
-              term.scrollToLine(Math.max(0, after.baseY - bottomOffset));
+              // A control sequence in this chunk may have switched buffers
+              // mid-write; if so, don't touch the (now alternate) viewport.
+              if (after.type !== "normal") return;
+              const target = Math.min(
+                Math.max(0, after.baseY - distanceFromBottom),
+                after.baseY,
+              );
+              term.scrollToLine(target);
             });
           } else {
             // User is at (or near) the bottom — follow output normally.
