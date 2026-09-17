@@ -19,6 +19,7 @@ use crate::models::{Project, TerminalDef};
 use log::{debug, warn};
 use std::io::Write as StdWrite;
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Sanitize an arbitrary id into a tmux-safe token: `[a-z0-9_-]`.
 /// tmux session/window names must not contain `.`, `:` or whitespace.
@@ -263,6 +264,10 @@ pub fn kill_master(project_id: &str, max_panes: usize) -> Result<(), String> {
     Ok(())
 }
 
+/// Monotonic counter used to give each paste operation a unique tmux buffer
+/// name, so two panes pasting concurrently never clobber each other's buffer.
+static PASTE_BUF_SEQ: AtomicU64 = AtomicU64::new(0);
+
 /// Paste `text` into the tmux pane for `pane_index` using tmux's own
 /// paste-buffer mechanism. Unlike writing raw bytes to the PTY, this lets tmux
 /// wrap the content in bracketed-paste markers when the inner application has
@@ -275,11 +280,14 @@ pub fn paste_text(project_id: &str, pane_index: usize, text: &str) -> Result<(),
     if !session_exists(&view) {
         return Err(format!("view session {view} does not exist"));
     }
-    let buf = "dwm-paste-buf";
+    // Unique per-paste buffer name: pid + a process-wide sequence number. A
+    // single global name would race if two panes pasted at the same time.
+    let seq = PASTE_BUF_SEQ.fetch_add(1, Ordering::Relaxed);
+    let buf = format!("dwm-paste-{}-{}", std::process::id(), seq);
 
     // Load text from stdin into a named tmux buffer.
     let mut child = Command::new("tmux")
-        .args(["load-buffer", "-b", buf, "-"])
+        .args(["load-buffer", "-b", &buf, "-"])
         .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
@@ -295,14 +303,18 @@ pub fn paste_text(project_id: &str, pane_index: usize, text: &str) -> Result<(),
         return Err("tmux load-buffer failed".into());
     }
 
-    // Paste into the view session. tmux checks whether the pane has bracketed
-    // paste mode enabled (from \x1b[?2004h it previously intercepted) and wraps
-    // the content appropriately before sending to the inner application.
+    // Paste into the view session.
+    //   -p  wrap the buffer in bracketed-paste control codes when the inner
+    //       application requested bracketed paste mode. Without this the app
+    //       receives ordinary line-separated input and submits each line as its
+    //       own prompt (the Antigravity multiline regression).
+    //   -r  do no LF->CR replacement, so real newlines survive inside the
+    //       bracketed-paste block instead of becoming Enter keypresses.
+    //   -d  delete the buffer once pasted (unique name, so nothing else needs it).
     let target = format!("={view}");
-    tmux_checked(&["paste-buffer", "-b", buf, "-t", &target])
+    tmux_checked(&["paste-buffer", "-p", "-r", "-d", "-b", &buf, "-t", &target])
         .map_err(|e| format!("tmux paste-buffer failed: {e}"))?;
 
-    let _ = tmux(&["delete-buffer", "-b", buf]);
     Ok(())
 }
 
