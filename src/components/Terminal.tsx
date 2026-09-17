@@ -152,31 +152,38 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       fitRef.current = fit;
       searchRef.current = search;
 
-      // Intercept wheel events and scroll the xterm viewport directly.
-      // By default xterm converts scroll wheel into ↑/↓ arrow key sequences
-      // sent to the PTY — which in agy, codex, claude, and gemini causes the
-      // current prompt to rotate through command history instead of scrolling
-      // the viewport. Taking over the wheel event fixes this for all profiles.
-      const onWheel = (e: WheelEvent) => {
-        e.preventDefault();
-        // deltaY > 0 = scroll down, < 0 = scroll up.
-        // Normalise pixel/line/page delta modes into a line count.
-        let lines: number;
-        if (e.deltaMode === WheelEvent.DOM_DELTA_PIXEL) {
-          lines = Math.round(e.deltaY / 20);
-        } else if (e.deltaMode === WheelEvent.DOM_DELTA_PAGE) {
-          lines = e.deltaY > 0 ? term.rows : -term.rows;
-        } else {
-          // DOM_DELTA_LINE — most common
-          lines = Math.round(e.deltaY) || (e.deltaY > 0 ? 3 : -3);
+      // Wheel handling depends on which screen buffer the running program uses:
+      //
+      //  • NORMAL buffer (shell, Claude, Codex — they print their transcript to
+      //    the main screen). Their output lands in xterm's scrollback, so the
+      //    wheel should scroll the viewport. That is xterm's default behaviour
+      //    for the normal buffer, so we let it through.
+      //
+      //  • ALTERNATE buffer (full-screen TUIs such as Antigravity). The alt
+      //    screen has NO scrollback of its own — content that leaves the top is
+      //    gone, and only the application can scroll it back. Two cases:
+      //      - the app enabled mouse reporting → let xterm forward the wheel as
+      //        mouse events so the app scrolls its own content;
+      //      - the app did NOT (e.g. Antigravity) → xterm's fallback is to send
+      //        ↑/↓ arrow keys, which those apps interpret as menu navigation,
+      //        not scrolling. We suppress that so the wheel stops hijacking
+      //        their navigation. (The terminal genuinely cannot scroll an
+      //        alt-screen app that doesn't cooperate — use the app's own keys.)
+      //
+      // attachCustomWheelEventHandler runs before xterm's own wheel logic;
+      // returning true lets xterm process the event, false cancels it.
+      term.attachCustomWheelEventHandler((e) => {
+        if (term.buffer.active.type !== "alternate") {
+          return true; // normal buffer → scroll xterm's scrollback viewport
         }
-        if (lines === 0) return;
-        term.scrollLines(lines);
-        // Keep userScrolledUp in sync after a manual wheel scroll.
-        const buf = term.buffer.active;
-        userScrolledUp.current = buf.viewportY < buf.baseY - 2;
-      };
-      el.addEventListener("wheel", onWheel, { passive: false });
+        if (term.modes.mouseTrackingMode !== "none") {
+          return true; // app captures the mouse → forward the wheel to it
+        }
+        // Full-screen app without mouse capture: don't translate the wheel into
+        // arrow keys (which would move its selection instead of scrolling).
+        e.preventDefault();
+        return false;
+      });
 
       // Detect scroll position changes from other sources (keyboard, scrollbar).
       // viewportY == 0 means top of buffer; viewportY == baseY means at the bottom.
@@ -272,10 +279,16 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
 
         unlistenOut = await listen<string>(`pty://output/${paneId}`, (ev) => {
           if (userScrolledUp.current) {
-            // User is reading history — preserve their scroll position.
-            const savedViewportY = term.buffer.active.viewportY;
+            // User is reading history — preserve their position. We anchor to
+            // the distance from the bottom rather than an absolute line index:
+            // apps like Codex emit output constantly, and as scrollback grows
+            // (or is trimmed at the limit) absolute line numbers shift, which
+            // made the viewport jump around. Distance-from-bottom stays stable.
+            const before = term.buffer.active;
+            const bottomOffset = before.baseY - before.viewportY;
             term.write(bytesToWrite(ev.payload), () => {
-              term.scrollToLine(savedViewportY);
+              const after = term.buffer.active;
+              term.scrollToLine(Math.max(0, after.baseY - bottomOffset));
             });
           } else {
             // User is at (or near) the bottom — follow output normally.
@@ -315,7 +328,6 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
       return () => {
         disposed = true;
         ro.disconnect();
-        el.removeEventListener("wheel", onWheel);
         el.removeEventListener("contextmenu", onContext);
         el.removeEventListener("focusin", onFocusIn);
         el.removeEventListener("mousedown", onFocusIn);
