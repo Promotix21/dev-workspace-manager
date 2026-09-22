@@ -99,6 +99,22 @@ pub fn paste_to_terminal(
     tmux_service::paste_text(&project_id, pane_index, &text)
 }
 
+/// Paste an image from the system clipboard into a terminal. The image is saved
+/// to a temp PNG and its path is pasted, since terminals accept image files by
+/// path (Claude Code, Codex, ...). Returns the written path, or errors when the
+/// clipboard holds no image so the frontend can ignore the attempt.
+#[tauri::command]
+pub fn paste_image_to_terminal(
+    store: State<Store>,
+    project_id: String,
+    pane_index: usize,
+) -> Result<String, String> {
+    let _ = store
+        .get_project(&project_id)?
+        .ok_or_else(|| format!("project {project_id} not found"))?;
+    tmux_service::paste_image(&project_id, pane_index)
+}
+
 /// Kill a single terminal's tmux window.
 #[tauri::command]
 pub fn kill_terminal(

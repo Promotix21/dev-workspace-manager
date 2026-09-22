@@ -123,6 +123,7 @@ pub fn run() {
             commands::terminal::restart_terminal,
             commands::terminal::kill_terminal,
             commands::terminal::paste_to_terminal,
+            commands::terminal::paste_image_to_terminal,
             // git
             commands::git::git_info,
             // system

@@ -311,11 +311,54 @@ pub fn paste_text(project_id: &str, pane_index: usize, text: &str) -> Result<(),
     //   -r  do no LF->CR replacement, so real newlines survive inside the
     //       bracketed-paste block instead of becoming Enter keypresses.
     //   -d  delete the buffer once pasted (unique name, so nothing else needs it).
-    let target = format!("={view}");
+    //
+    // Target syntax matters: `paste-buffer -t` resolves a *pane*, and a bare
+    // `=view` (exact session match with no window/pane part) fails with
+    // "can't find pane" on tmux 3.4. The trailing `:` makes it an exact session
+    // target whose active window+pane tmux fills in — matching how the other
+    // send-keys call sites here address a pane.
+    let target = format!("={view}:");
     tmux_checked(&["paste-buffer", "-p", "-r", "-d", "-b", &buf, "-t", &target])
         .map_err(|e| format!("tmux paste-buffer failed: {e}"))?;
 
     Ok(())
+}
+
+/// Paste an image from the system clipboard into the terminal.
+///
+/// Terminals carry bytes, not pictures, so a raw image cannot be "typed" into a
+/// PTY. Instead we save the clipboard image to a temp PNG and paste its file
+/// path — CLIs such as Claude Code and Codex accept an image by path. Returns
+/// the path written so the caller can surface it. Errors if the clipboard holds
+/// no image (the frontend uses that to fall back to / ignore non-image pastes).
+pub fn paste_image(project_id: &str, pane_index: usize) -> Result<String, String> {
+    let view = view_name(project_id, pane_index);
+    if !session_exists(&view) {
+        return Err(format!("view session {view} does not exist"));
+    }
+
+    // Pull the raw RGBA image off the clipboard.
+    let mut clipboard =
+        arboard::Clipboard::new().map_err(|e| format!("clipboard open failed: {e}"))?;
+    let img = clipboard
+        .get_image()
+        .map_err(|e| format!("no image on clipboard: {e}"))?;
+    let width = img.width as u32;
+    let height = img.height as u32;
+    let rgba = image::RgbaImage::from_raw(width, height, img.bytes.into_owned())
+        .ok_or_else(|| "clipboard image had an unexpected buffer size".to_string())?;
+
+    // Write it to a uniquely named temp PNG (same seq counter as text paste).
+    let seq = PASTE_BUF_SEQ.fetch_add(1, Ordering::Relaxed);
+    let mut path = std::env::temp_dir();
+    path.push(format!("dwm-paste-{}-{}.png", std::process::id(), seq));
+    rgba.save_with_format(&path, image::ImageFormat::Png)
+        .map_err(|e| format!("failed to write clipboard image: {e}"))?;
+
+    // Paste the path as text so the inner CLI can pick the file up.
+    let path_str = path.to_string_lossy().into_owned();
+    paste_text(project_id, pane_index, &path_str)?;
+    Ok(path_str)
 }
 
 /// Kill a single window (one terminal) within the master session.

@@ -56,6 +56,10 @@ export const pasteToTerminal = (
   paneIndex: number,
   text: string,
 ) => invoke<void>("paste_to_terminal", { projectId, paneIndex, text });
+// Paste an image from the clipboard. Saves it to a temp PNG and pastes the
+// path; resolves to that path, rejects when the clipboard holds no image.
+export const pasteImageToTerminal = (projectId: string, paneIndex: number) =>
+  invoke<string>("paste_image_to_terminal", { projectId, paneIndex });
 
 // --- git & system ---
 export const gitInfo = (dir: string) => invoke<GitInfo>("git_info", { dir });

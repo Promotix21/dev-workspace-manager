@@ -29,6 +29,24 @@ function logScroll(fields: Record<string, unknown>): void {
   }
 }
 
+// Paste the clipboard into a pane: text when present, otherwise fall back to an
+// image (readText resolves empty or rejects when the clipboard holds a picture,
+// which the Rust side saves to a temp PNG and pastes by path). A clipboard with
+// neither is a silent no-op.
+function pasteClipboardInto(projectId: string, paneIndex: number): void {
+  clipboardRead()
+    .then((txt) => {
+      if (txt) {
+        api.pasteToTerminal(projectId, paneIndex, txt).catch(() => {});
+      } else {
+        api.pasteImageToTerminal(projectId, paneIndex).catch(() => {});
+      }
+    })
+    .catch(() => {
+      api.pasteImageToTerminal(projectId, paneIndex).catch(() => {});
+    });
+}
+
 export interface TerminalHandle {
   clear: () => void;
   focus: () => void;
@@ -118,18 +136,12 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
         if (sel) clipboardWrite(sel).catch(() => {});
       },
       pasteClipboard: () => {
-        clipboardRead()
-          .then((txt) => {
-            if (txt) {
-              // Route through tmux paste-buffer so bracketed-paste mode is
-              // honoured for inner apps (e.g. Antigravity). tmux intercepts
-              // \x1b[?2004h and never passes it to xterm.js, so
-              // term.modes.bracketedPasteMode is always false here and
-              // term.paste() would send raw \r for every newline.
-              api.pasteToTerminal(projectId, paneIndex, txt).catch(() => {});
-            }
-          })
-          .catch(() => {});
+        // Route through tmux paste-buffer so bracketed-paste mode is honoured
+        // for inner apps (e.g. Antigravity). tmux intercepts \x1b[?2004h and
+        // never passes it to xterm.js, so term.modes.bracketedPasteMode is
+        // always false here and term.paste() would send raw \r for every
+        // newline. Falls back to an image paste when no text is present.
+        pasteClipboardInto(projectId, paneIndex);
       },
       selectAll: () => termRef.current?.selectAll(),
     }));
@@ -245,13 +257,7 @@ export const Terminal = forwardRef<TerminalHandle, TerminalProps>(
           return false;
         }
         if (e.ctrlKey && e.shiftKey && (e.key === "V" || e.key === "v")) {
-          clipboardRead()
-            .then((txt) => {
-              if (txt) {
-                api.pasteToTerminal(projectId, paneIndex, txt).catch(() => {});
-              }
-            })
-            .catch(() => {});
+          pasteClipboardInto(projectId, paneIndex);
           e.preventDefault();
           return false;
         }

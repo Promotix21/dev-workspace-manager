@@ -30,3 +30,8 @@ anyhow = "1"
 uuid = { version = "1", features = ["v4"] }
 tauri-plugin-single-instance = "2.4.3"
 keyring = "4.1.6"
+# Image paste: read the raw clipboard image (arboard) and encode it to PNG
+# (image). Both are already in the dependency tree via the clipboard-manager
+# plugin, so pinning them here adds no new compilation cost.
+arboard = "3.6"
+image = "0.25"
